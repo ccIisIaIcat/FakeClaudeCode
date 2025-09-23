@@ -1,0 +1,13 @@
+# Logs
+log/
+*.log
+
+# Secrets / local config
+LLMConfig.yaml
+
+# Temp/test files
+test_shell_pwd.go
+image.png
+
+# Local vendor repo (use module dependency instead)
+agent/

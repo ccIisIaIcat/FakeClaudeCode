@@ -1,0 +1,11 @@
+services:
+  go-linux-dev:
+    image: golang:1.24-bookworm
+    platform: linux/amd64
+    container_name: go-linux-dev
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+

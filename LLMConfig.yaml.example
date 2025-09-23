@@ -1,0 +1,21 @@
+AgentAPIKey:
+  OpenAI:
+    BaseUrl: https://api.openai-proxy.org/v1
+    APIKey: 你的密钥
+    Model: gpt-5-2025-08-07
+  Anthropic:
+    BaseUrl: https://api.openai-proxy.org/anthropic
+    APIKey: 你的密钥
+    Model: claude-sonnet-4-0
+  DeepSeek:
+    BaseUrl: https://api.deepseek.com
+    APIKey: 你的密钥
+    Model: deepseek-chat
+  GoogleKey: 
+    BaseUrl: https://api.openai-proxy.org/google
+    APIKey: 你的密钥
+    Model: gemini-2.5-pro
+  Qwen:
+   BaseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
+   APIKey: 你的密钥
+   Model: qwen-plus

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(go get:*)",
+      "Bash(mkdir:*)",
+      "Bash(go run:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
