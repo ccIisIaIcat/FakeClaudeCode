@@ -317,7 +317,7 @@ func (b *BubbleTeaTUI) addMessage(message, msgType string) {
 	case "explanation":
 		wrappedMsg := b.wrapText(fmt.Sprintf("  %s", message), maxWidth) // 缩进显示
 		styledMessage = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).   // 灰色
+			Foreground(lipgloss.Color("240")). // 灰色
 			Render(wrappedMsg)
 	case "todolist":
 		// 处理TodoList的特殊格式化
