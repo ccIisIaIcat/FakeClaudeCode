@@ -36,6 +36,9 @@ type (
 		filename string
 		success  bool
 	}
+	toolDescriptionMsg struct {
+		description string
+	}
 )
 
 // BubbleTeaTUI represents the new TUI using Bubble Tea
@@ -131,7 +134,7 @@ func (b *BubbleTeaTUI) Init() tea.Cmd {
 	// Add welcome message
 	b.addMessage("🚀 欢迎使用 LukatinCode!", "system")
 	b.addMessage("💡 输入消息开始对话，输入 'exit' 退出", "system")
-	b.addMessage("🔧 快捷键: Ctrl+S=导出对话历史, Ctrl+L=清空历史, Ctrl+C=退出", "system")
+	b.addMessage("🔧 快捷键: ESC=取消AI任务, Ctrl+S=导出历史, Ctrl+L=清空历史, Ctrl+C=退出", "system")
 
 	return tea.Batch(
 		textinput.Blink,
@@ -162,9 +165,16 @@ func (b *BubbleTeaTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "esc":
+		case "ctrl+c":
 			b.lukatinCode.Logger.Println("用户请求退出")
 			return b, tea.Quit
+
+		case "esc":
+			b.lukatinCode.Logger.Println("用户按下ESC键")
+			if b.lukatinCode != nil {
+				b.lukatinCode.CancelCurrentTask()
+			}
+			return b, nil
 
 		case "ctrl+s":
 			// 导出对话历史到文件
@@ -233,6 +243,10 @@ func (b *BubbleTeaTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		b.lukatinCode.Logger.Printf("状态更新: %s", msg.status)
 		b.status = msg.status
+
+	case toolDescriptionMsg:
+		b.lukatinCode.Logger.Printf("收到工具描述: %s", msg.description)
+		b.addMessage(msg.description, "tool_description")
 
 	case exportMsg:
 		if msg.success {
@@ -316,6 +330,11 @@ func (b *BubbleTeaTUI) addMessage(message, msgType string) {
 			Render(wrappedMsg)
 	case "explanation":
 		wrappedMsg := b.wrapText(fmt.Sprintf("  %s", message), maxWidth) // 缩进显示
+		styledMessage = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")). // 灰色
+			Render(wrappedMsg)
+	case "tool_description":
+		wrappedMsg := b.wrapText(message, maxWidth) // 不添加时间戳和缩进
 		styledMessage = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")). // 灰色
 			Render(wrappedMsg)
@@ -452,6 +471,13 @@ func (b *BubbleTeaTUI) chatWithBubbleTea(input string) {
 	b.lukatinCode.Logger.Printf("=================== 开始处理用户输入 ===================")
 	b.lukatinCode.Logger.Printf("用户输入: %s", input)
 
+	// 设置处理状态
+	b.lukatinCode.isProcessing = true
+	defer func() {
+		b.lukatinCode.isProcessing = false
+		b.lukatinCode.Logger.Println("AI任务处理状态已重置")
+	}()
+
 	if b.program != nil {
 		b.program.Send(statusMsg{status: "AI正在思考..."})
 	}
@@ -484,22 +510,30 @@ func (b *BubbleTeaTUI) chatWithBubbleTea(input string) {
 					}
 				}
 
-				// 处理文本内容 - 这些是AI的解释性文本
+				// 处理文本内容
 				for i, content := range msg.Content {
 					b.lukatinCode.Logger.Printf("处理内容%d: Type=%s, Text长度=%d",
 						i+1, content.Type, len(content.Text))
 					if content.Type == general.ContentTypeText && content.Text != "" {
-						// 如果有工具调用，这些文本是解释性的，用灰色显示
+						// 如果有工具调用，这些可能是说明文本，需要判断是否显示
 						if len(msg.ToolCalls) > 0 {
-							if b.program != nil {
-								b.program.Send(aiResponseMsg{
-									sender:  "explanation",
-									message: content.Text,
-									isError: false,
-								})
+							// 判断是否为说明性文本
+							if b.lukatinCode.isExplanatoryText(content.Text) {
+								// 截取前三行或最大100字符
+								truncatedText := b.lukatinCode.truncateText(content.Text)
+								if b.program != nil {
+									b.program.Send(aiResponseMsg{
+										sender:  "explanation",
+										message: truncatedText,
+										isError: false,
+									})
+								}
+								b.lukatinCode.Logger.Printf("添加说明文本: %s", truncatedText)
+							} else {
+								b.lukatinCode.Logger.Printf("跳过结果文本: %s", content.Text)
 							}
 						} else {
-							// 普通AI回复
+							// 没有工具调用的普通AI回复
 							messages = append(messages, content.Text)
 							b.lukatinCode.Logger.Printf("添加文本消息: %s", content.Text)
 						}
@@ -513,10 +547,55 @@ func (b *BubbleTeaTUI) chatWithBubbleTea(input string) {
 	// 调用AI
 	b.lukatinCode.Logger.Println("开始调用AI Chat方法")
 	start := time.Now()
+
+	// 创建可取消的context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 启动取消监听goroutine
+	go func() {
+		select {
+		case <-b.lukatinCode.cancelChan:
+			b.lukatinCode.Logger.Println("收到取消信号，正在中断AI任务")
+			cancel()
+			if b.program != nil {
+				b.program.Send(statusMsg{status: "任务已取消"})
+			}
+		case <-ctx.Done():
+			// AI任务正常完成或其他原因取消
+		}
+	}()
+
 	model := b.lukatinCode.Lmmconfig.AgentAPIKey.OpenAI.Model
-	_, _, err, _ := b.lukatinCode.CM.Chat(context.Background(), general.ProviderOpenAI, model, input, []string{}, info_chan)
-	duration := time.Since(start)
-	b.lukatinCode.Logger.Printf("AI Chat调用完成, 耗时: %v", duration)
+	b.lukatinCode.Logger.Printf("================== 开始网络请求 ==================")
+	b.lukatinCode.Logger.Printf("请求模型: %s", model)
+	b.lukatinCode.Logger.Printf("请求提供商: %s", general.ProviderOpenAI)
+	b.lukatinCode.Logger.Printf("输入文本长度: %d 字符", len(input))
+
+	// 记录网络请求开始时间
+	networkStart := time.Now()
+	_, _, err, usage := b.lukatinCode.CM.Chat(ctx, general.ProviderOpenAI, model, input, []string{}, info_chan)
+	networkDuration := time.Since(networkStart)
+
+	// 总体耗时
+	totalDuration := time.Since(start)
+
+	// 详细的时间记录
+	b.lukatinCode.Logger.Printf("================== 网络请求完成 ==================")
+	b.lukatinCode.Logger.Printf("网络请求耗时: %v", networkDuration)
+	b.lukatinCode.Logger.Printf("总体处理耗时: %v", totalDuration)
+	b.lukatinCode.Logger.Printf("本地处理耗时: %v (总时间 - 网络时间)", totalDuration-networkDuration)
+	
+	// Token使用统计
+	if usage != nil {
+		b.lukatinCode.Logger.Printf("Token使用情况: Prompt=%d, Completion=%d, Total=%d", 
+			usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
+	} else {
+		b.lukatinCode.Logger.Printf("Token使用情况: 未获取到usage数据")
+	}
+
+	// 记录到专门的网络性能日志文件
+	b.logNetworkPerformance(input, model, networkDuration, totalDuration, usage, err)
 
 	close(info_chan)
 	b.lukatinCode.Logger.Println("关闭info_chan")
@@ -529,11 +608,20 @@ func (b *BubbleTeaTUI) chatWithBubbleTea(input string) {
 	if err != nil {
 		b.lukatinCode.Logger.Printf("AI调用出错: %v", err)
 		if b.program != nil {
-			b.program.Send(aiResponseMsg{
-				sender:  "assistant",
-				message: fmt.Sprintf("处理失败: %v", err),
-				isError: true,
-			})
+			// 检查是否因为取消而出错
+			if ctx.Err() == context.Canceled {
+				b.program.Send(aiResponseMsg{
+					sender:  "assistant",
+					message: "AI任务已被用户取消",
+					isError: false,
+				})
+			} else {
+				b.program.Send(aiResponseMsg{
+					sender:  "assistant",
+					message: fmt.Sprintf("处理失败: %v", err),
+					isError: true,
+				})
+			}
 		}
 	} else {
 		// 显示AI回复
@@ -652,6 +740,52 @@ func (b *BubbleTeaTUI) wrapText(text string, width int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// logNetworkPerformance 记录网络性能数据到专门的日志文件
+func (b *BubbleTeaTUI) logNetworkPerformance(input, model string, networkDuration, totalDuration time.Duration, usage *general.Usage, err error) {
+	// 确保log目录存在
+	if _, err := os.Stat("log"); os.IsNotExist(err) {
+		os.MkdirAll("log", 0755)
+	}
+
+	// 打开或创建network_performance.txt文件
+	file, err := os.OpenFile("log/network_performance.txt", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	// 写入详细的网络性能数据
+	timestamp := time.Now().Format("2006/01/02 15:04:05")
+	status := "SUCCESS"
+	if err != nil {
+		status = fmt.Sprintf("ERROR: %v", err)
+	}
+
+	// 计算网络占比
+	networkRatio := float64(networkDuration) / float64(totalDuration) * 100
+	
+	// 处理Token信息
+	var tokenInfo string
+	if usage != nil {
+		tokenInfo = fmt.Sprintf("Prompt:%d|Completion:%d|Total:%d", 
+			usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
+	} else {
+		tokenInfo = "Token:N/A"
+	}
+
+	fmt.Fprintf(file, "%s | %s | %s | Input:%d chars | Network:%v | Total:%v | Ratio:%.1f%% | %s | %s\n",
+		timestamp,
+		general.ProviderOpenAI,
+		model,
+		len(input),
+		networkDuration,
+		totalDuration,
+		networkRatio,
+		tokenInfo,
+		status,
+	)
 }
 
 // exportHistory exports the conversation history to a file

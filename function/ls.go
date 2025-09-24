@@ -5,30 +5,35 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func LS(path string, ignore []string) string {
+	// 记录开始时间
+	start := time.Now()
+	
 	// 记录日志
 	logFile, err := os.OpenFile("./log/ls.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	var logger *log.Logger
 	if err == nil {
 		defer logFile.Close()
-		logger := log.New(logFile, "", log.LstdFlags)
+		logger = log.New(logFile, "", log.LstdFlags)
 		logger.Printf("LS函数调用 - path: %s, ignore: %v", path, ignore)
 	}
 
 	if !filepath.IsAbs(path) {
-		if logFile != nil {
-			logger := log.New(logFile, "", log.LstdFlags)
-			logger.Printf("LS函数返回 - 错误: Path must be absolute")
+		duration := time.Since(start)
+		if logger != nil {
+			logger.Printf("LS函数返回 - 错误: Path must be absolute, 耗时: %v", duration)
 		}
 		return `{"error": "Path must be absolute"}`
 	}
 
 	entries, err := os.ReadDir(path)
 	if err != nil {
-		if logFile != nil {
-			logger := log.New(logFile, "", log.LstdFlags)
-			logger.Printf("LS函数返回 - 读取目录错误: %s", err.Error())
+		duration := time.Since(start)
+		if logger != nil {
+			logger.Printf("LS函数返回 - 读取目录错误: %s, 耗时: %v", err.Error(), duration)
 		}
 		return `{"error": "` + err.Error() + `"}`
 	}
@@ -55,9 +60,9 @@ func LS(path string, ignore []string) string {
 	}
 
 	jsonResult, _ := json.Marshal(result)
-	if logFile != nil {
-		logger := log.New(logFile, "", log.LstdFlags)
-		logger.Printf("LS函数返回 - 文件数: %d, 结果: %s", len(result), string(jsonResult))
+	duration := time.Since(start)
+	if logger != nil {
+		logger.Printf("LS函数返回 - 文件数: %d, 耗时: %v, 结果: %s", len(result), duration, string(jsonResult))
 	}
 	return string(jsonResult)
 }

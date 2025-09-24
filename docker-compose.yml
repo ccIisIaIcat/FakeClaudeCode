@@ -4,8 +4,12 @@ services:
     platform: linux/amd64
     container_name: go-linux-dev
     working_dir: /workspace
+    environment:
+      - TZ=Asia/Shanghai
     volumes:
       - ./:/workspace
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
     command: ["sleep", "infinity"]
     restart: unless-stopped
 
