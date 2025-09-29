@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LukatinCode - AI代码助手</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: #000000;
+            color: #ffffff;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        .header {
+            padding: 60px 0;
+            text-align: center;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1));
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .header h1 {
+            font-size: 3.5em;
+            font-weight: 700;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .header p {
+            font-size: 1.3em;
+            color: #aaaaaa;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .main-content {
+            padding: 80px 0;
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+            margin-bottom: 80px;
+        }
+        
+        .feature-card {
+            background: rgba(17, 17, 17, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 40px;
+            transition: all 0.3s ease;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(59, 130, 246, 0.3);
+            box-shadow: 0 10px 30px rgba(59, 130, 246, 0.1);
+        }
+        
+        .feature-icon {
+            font-size: 3em;
+            margin-bottom: 20px;
+        }
+        
+        .feature-title {
+            font-size: 1.5em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #3b82f6;
+        }
+        
+        .feature-description {
+            color: #cccccc;
+        }
+        
+        .installation {
+            background: rgba(17, 17, 17, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 40px;
+            margin-bottom: 60px;
+        }
+        
+        .installation h2 {
+            font-size: 2em;
+            margin-bottom: 20px;
+            color: #3b82f6;
+        }
+        
+        .code-block {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            color: #e6edf3;
+            overflow-x: auto;
+        }
+        
+        .download-section {
+            text-align: center;
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(16, 185, 129, 0.1));
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            border-radius: 16px;
+            padding: 60px 40px;
+        }
+        
+        .download-section h2 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            color: #22c55e;
+        }
+        
+        .download-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-top: 40px;
+        }
+        
+        .download-btn {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            padding: 15px 30px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3);
+        }
+        
+        .download-btn.secondary {
+            background: linear-gradient(135deg, #6b7280, #374151);
+        }
+        
+        .footer {
+            padding: 40px 0;
+            text-align: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            color: #888888;
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2.5em;
+            }
+            
+            .features {
+                grid-template-columns: 1fr;
+            }
+            
+            .download-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="container">
+            <h1>LukatinCode</h1>
+            <p>基于Go语言开发的Claude Code翻版，集成持久化Shell、代码检索与编辑、Todo管理等能力，支持多家大模型</p>
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="container">
+            <div class="features">
+                <div class="feature-card">
+                    <div class="feature-icon"></div>
+                    <div class="feature-title">持久化Shell</div>
+                    <div class="feature-description">
+                        内置持久化Bash环境，跨命令保留状态，支持环境变量和路径持久化，适合构建和脚本执行
+                    </div>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon"></div>
+                    <div class="feature-title">代码检索与编辑</div>
+                    <div class="feature-description">
+                        集成Grep/Glob/LS等检索工具，支持Read/Edit/MultiEdit/Write等文件操作，实现精确的代码浏览与批量编辑
+                    </div>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon"></div>
+                    <div class="feature-title">Todo管理系统</div>
+                    <div class="feature-description">
+                        结构化待办清单管理，支持TodoRead/TodoWrite操作，强约束校验确保任务状态一致性
+                    </div>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon"></div>
+                    <div class="feature-title">多模型支持</div>
+                    <div class="feature-description">
+                        支持OpenAI、Anthropic、DeepSeek、Google、Qwen等多家大模型，通过配置文件灵活切换
+                    </div>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon"></div>
+                    <div class="feature-title">TUI界面</div>
+                    <div class="feature-description">
+                        基于Bubble Tea构建的现代终端用户界面，实时显示工具调用进度、TodoList状态和日志输出
+                    </div>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon"></div>
+                    <div class="feature-title">联网搜索能力</div>
+                    <div class="feature-description">
+                        集成WebFetch/WebSearch/Task等工具，支持网页分析、联网搜索和子Agent扩展搜索功能
+                    </div>
+                </div>
+            </div>
+            
+            <div class="installation">
+                <h2>快速开始</h2>
+                <p>配置并运行LukatinCode：</p>
+                
+                <div class="code-block">
+                    # 1. 克隆项目
+                    $ git clone https://github.com/ccIisIaIcat/FakeClaudeCode
+                    $ cd FakeClaudeCode
+                    
+                    # 2. 配置模型（编辑 LLMConfig.yaml）
+                    AgentAPIKey:
+                      OpenAI:
+                        BaseUrl: https://api.openai.com/v1
+                        APIKey: sk-xxx
+                        Model: gpt-4o
+                    
+                    # 3. 运行程序
+                    $ go run main.go
+                </div>
+                
+                <h3 style="color: #3b82f6; margin-top: 30px;">支持的模型</h3>
+                <div class="code-block">
+                    OpenAI (GPT-4, GPT-3.5等)
+                    Anthropic (Claude系列)
+                    DeepSeek (DeepSeek-V2等)
+                    Google (Gemini系列)
+                    Qwen (通义千问系列)
+                </div>
+                
+                <h3 style="color: #3b82f6; margin-top: 30px;">Docker使用</h3>
+                <div class="code-block">
+                    # Linux容器环境
+                    $ docker compose up -d
+                    $ docker exec -it go-linux-dev bash
+                    $ cd /workspace && go run main.go
+                </div>
+            </div>
+
+            <div class="installation" style="margin-bottom:40px;">
+                <h2>如何使用 LukatinCode（AI 助手）</h2>
+                <p>LukatinCode 同时包含一个交互式 AI 助手（即本项目内置的智能代理），可以通过自然语言指令调用内置工具来完成代码检索、编辑与任务管理。</p>
+
+                <div class="code-block">
+                    # 示例交互（终端或TUI中）
+                    User: 帮我查找所有包含 "TODO" 的文件并列出
+                    Assistant: 正在使用 Grep 搜索... (返回文件列表)
+
+                    User: 请在 src/main.go 中把变量名 oldName 改为 newName
+                    Assistant: 已使用 Edit 操作修改 src/main.go
+
+                    User: 新增一个待办：添加单元测试
+                    Assistant: 使用 TodoWrite 创建任务并返回任务ID
+                </div>
+
+                <p>可用工具（示例）：</p>
+                <div class="code-block">
+                    - Grep, Glob: 代码检索
+                    - Read, Edit, MultiEdit, Write: 文件读写与批量编辑
+                    - TodoRead, TodoWrite: 结构化任务管理
+                    - WebFetch, WebSearch, Task: 联网与子Agent扩展
+                </div>
+
+                <p>建议的最小工作流：</p>
+                <div class="code-block">
+                    1) 使用 Grep/Glob 定位问题文件
+                    2) 使用 Read 查看上下文
+                    3) 使用 Edit/MultiEdit 进行修改并保存
+                    4) 使用 TodoWrite 记录变更或后续任务
+                </div>
+            </div>
+            
+            <div class="download-section">
+                <h2>获取源码</h2>
+                <p>一个Claude Code翻版的Go语言实现</p>
+                
+                <div class="download-buttons">
+                    <a href="https://github.com/ccIisIaIcat/FakeClaudeCode" class="download-btn">
+                        查看GitHub仓库
+                    </a>
+                    <a href="https://github.com/ccIisIaIcat/GoAgent" class="download-btn secondary">
+                        GoAgent核心库
+                    </a>
+                </div>
+                
+                <div style="margin-top: 30px; color: #888888; font-size: 0.9em;">
+                    <p>基于GoAgent核心库开发，集成完整的Claude Code功能集</p>
+                    <p>支持Go 1.24+，兼容Windows/macOS/Linux平台</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <div class="container">
+            <p>&copy; 2024 LukatinCode. 基于Go语言构建的Claude Code翻版实现.</p>
+        </div>
+    </div>
+</body>
+</html>

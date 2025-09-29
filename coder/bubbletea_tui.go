@@ -93,7 +93,7 @@ type BubbleTeaTUI struct {
 	responseChannels map[string]chan bool
 	waitingForConfirm bool
 	currentChangeId   string
-	uiMode           string // "normal" 或 "confirm"
+	uiMode           string // "normal", "confirm"
 
 	// Styles
 	inputStyle     lipgloss.Style
@@ -215,6 +215,7 @@ func (b *BubbleTeaTUI) Init() tea.Cmd {
 	b.addMessage("🚀 欢迎使用 LukatinCode!", "system")
 	b.addMessage("💡 输入消息开始对话，输入 'exit' 退出", "system")
 	b.addMessage("🔧 快捷键: ESC=取消AI任务, Ctrl+S=导出历史, Ctrl+L=清空历史, Ctrl+C=退出", "system")
+	b.addMessage("🖱️  提示: 可以用鼠标选中文字然后右键复制或使用终端快捷键复制", "system")
 
 	return tea.Batch(
 		textinput.Blink,
@@ -269,6 +270,7 @@ func (b *BubbleTeaTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.addMessage("🗑️ 对话历史已清空", "system")
 			b.addMessage("💡 按 Ctrl+S 导出对话历史到文件", "system")
 			return b, nil
+
 
 		case "enter":
 			// 处理代码修改确认
@@ -878,7 +880,7 @@ func (b *BubbleTeaTUI) Run() error {
 	p := tea.NewProgram(
 		b,
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
+		// 移除鼠标模式，允许原生文本选择和复制
 	)
 
 	// Store program reference for sending messages
@@ -1235,6 +1237,7 @@ func (b *BubbleTeaTUI) exportHistory() {
 	content += "\n========================\n"
 	content += "💡 提示: 这个文件包含了完整的对话历史，你可以复制其中的任何内容\n"
 	content += "🔧 快捷键: Ctrl+S=导出历史, Ctrl+L=清空历史, Ctrl+C=退出\n"
+	content += "🖱️  提示: 可以用鼠标选中文字然后复制\n"
 
 	result := function.Write(absolutePath, content)
 	if result != "" && !strings.Contains(result, "Successfully") {
@@ -1249,4 +1252,5 @@ func (b *BubbleTeaTUI) exportHistory() {
 		}
 	}
 }
+
 

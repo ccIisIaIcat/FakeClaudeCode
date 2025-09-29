@@ -313,7 +313,7 @@ func (lc *LukatinCode) RegisterAllFunction() {
 				paramDescs = append(paramDescs, paramInfo.Description)
 			}
 		}
-		err := lc.CM.RegisterFunction("Write", desc.Description, function.Write, paramNames, paramDescs)
+		err := lc.CM.RegisterFunction("Write", desc.Description, lc.Writer, paramNames, paramDescs)
 		if err != nil {
 			lc.Logger.Printf("注册Write函数失败: %v", err)
 			fmt.Printf("注册Write函数失败: %v\n", err)
