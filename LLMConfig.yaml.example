@@ -19,3 +19,7 @@ AgentAPIKey:
    BaseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
    APIKey: 你的密钥
    Model: qwen-plus
+# 配置的搜索引擎
+Tavily: 
+  BaseUrl: https://api.tavily.com/search
+  APIKEY: 你的密钥

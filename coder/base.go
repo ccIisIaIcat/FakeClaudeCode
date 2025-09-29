@@ -100,6 +100,8 @@ func GenLukatinCode(lmmconfig *general.LLMConfig, system_promote string) *Lukati
 	// 初始化新的Bubble Tea TUI
 	lc.Logger.Println("初始化Bubble Tea TUI组件")
 	lc.BubbleTUI = NewBubbleTeaTUI(lc)
+	
+	// UI实例已经在LukatinCode结构中可用
 
 	// 初始化持久化Shell
 	lc.Logger.Println("初始化持久化Shell")

@@ -96,3 +96,5 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o dist/claudecode-linux-amd64 ma
 
 ## 许可证
 - 本项目仅用于学习与内部开发演示。第三方 API 使用遵循其各自服务条款。
+
+将 "This is a test file" 替换为 "This is an edited test file"

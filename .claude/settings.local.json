@@ -4,9 +4,15 @@
       "WebFetch(domain:github.com)",
       "Bash(go get:*)",
       "Bash(mkdir:*)",
-      "Bash(go run:*)"
+      "Bash(go run:*)",
+      "Bash(find:*)",
+      "Bash(rm:*)",
+      "Bash(cp:*)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "C:\\Users\\a\\go\\pkg\\mod\\github.com\\cc!iis!ia!icat\\!go!agent@v1.0.5"
+    ]
   }
 }

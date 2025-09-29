@@ -15,7 +15,7 @@ var readHistory = make(map[string]time.Time)
 
 func Edit(file_path string, old_string string, new_string string, replace_all bool, expected_replacements int) string {
 	start := time.Now()
-	
+
 	// 记录日志
 	logFile, err := os.OpenFile("./log/edit.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	var logger *log.Logger
@@ -133,9 +133,9 @@ func Edit(file_path string, old_string string, new_string string, replace_all bo
 	// 10. 返回结果
 	newSize := len(newContent)
 	sizeDelta := newSize - originalSize
-	result := fmt.Sprintf("Successfully made %d replacement(s) in %s. Size changed by %+d bytes (%d -> %d)", 
+	result := fmt.Sprintf("Successfully made %d replacement(s) in %s. Size changed by %+d bytes (%d -> %d)",
 		actualReplacements, filepath.Base(file_path), sizeDelta, originalSize, newSize)
-	
+
 	if logger != nil {
 		logger.Printf("Edit函数返回 - 成功编辑: %s", result)
 	}
@@ -148,12 +148,12 @@ func cleanLineNumberPrefix(text string) string {
 	lineNumPattern := regexp.MustCompile(`^\s*\d+\t`)
 	lines := strings.Split(text, "\n")
 	var cleanedLines []string
-	
+
 	for _, line := range lines {
 		cleanedLine := lineNumPattern.ReplaceAllString(line, "")
 		cleanedLines = append(cleanedLines, cleanedLine)
 	}
-	
+
 	return strings.Join(cleanedLines, "\n")
 }
 

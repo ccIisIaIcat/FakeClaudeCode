@@ -273,7 +273,7 @@ func (lc *LukatinCode) RegisterAllFunction() {
 				paramDescs = append(paramDescs, paramInfo.Description)
 			}
 		}
-		err := lc.CM.RegisterFunction("Edit", desc.Description, function.Edit, paramNames, paramDescs)
+		err := lc.CM.RegisterFunction("Edit", desc.Description, lc.Editor, paramNames, paramDescs)
 		if err != nil {
 			lc.Logger.Printf("注册Edit函数失败: %v", err)
 			fmt.Printf("注册Edit函数失败: %v\n", err)
@@ -376,6 +376,7 @@ func (lc *LukatinCode) RegisterAllFunction() {
 			// fmt.Printf("成功注册WebSearch函数\n")
 		}
 	}
+
 
 	lc.Logger.Println("函数注册完成")
 }

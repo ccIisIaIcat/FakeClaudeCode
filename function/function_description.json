@@ -123,13 +123,13 @@
       }
     },
     "Edit": {
-      "description": "Performs exact string replacements in files with strict occurrence count validation.\n\nUsage:\n- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: spaces + line number + tab. Everything after that tab is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.",
+      "description": "Performs exact string replacements in files with enhanced safety checks and validation.\n\nUsage:\n- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: spaces + line number + tab. Everything after that tab is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- Automatically cleans line number prefixes from Read tool output\n- Validates Read tool usage history for existing files\n- Creates automatic backups for large files or extensive replacements\n- Provides detailed execution logging and performance monitoring",
       "parameters": {
         "additionalProperties": false,
         "properties": {
           "expected_replacements": {
             "default": 1,
-            "description": "The expected number of replacements to perform. Defaults to 1 if not specified.",
+            "description": "The expected number of replacements to perform. Defaults to 1 if not specified. Ignored when replace_all=true.",
             "type": "number"
           },
           "file_path": {
@@ -143,6 +143,11 @@
           "old_string": {
             "description": "The text to replace",
             "type": "string"
+          },
+          "replace_all": {
+            "default": false,
+            "description": "Replace all occurrences of old_string (default false). When true, replaces all matches regardless of expected_replacements.",
+            "type": "boolean"
           }
         },
         "required": ["file_path", "old_string", "new_string"],

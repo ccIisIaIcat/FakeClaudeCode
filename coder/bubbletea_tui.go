@@ -11,12 +11,24 @@ import (
 	"time"
 
 	"github.com/ccIisIaIcat/GoAgent/agent/general"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// 确认选择项
+type confirmOption struct {
+	title string
+	desc  string
+	value bool
+}
+
+func (c confirmOption) Title() string       { return c.title }
+func (c confirmOption) Description() string { return c.desc }
+func (c confirmOption) FilterValue() string { return c.title }
 
 // Message types for Bubble Tea
 type (
@@ -27,7 +39,11 @@ type (
 		isError bool
 	}
 	toolCallMsg struct {
+		toolCalls []toolCallInfo
+	}
+	toolCallInfo struct {
 		toolName string
+		params   string
 	}
 	statusMsg struct {
 		status string
@@ -39,6 +55,18 @@ type (
 	toolDescriptionMsg struct {
 		description string
 	}
+	codeChangeMsg struct {
+		filePath    string
+		oldContent  string
+		newContent  string
+		operation   string // "edit", "multiedit", "write"
+		needConfirm bool
+		changeId    string
+	}
+	userConfirmMsg struct {
+		changeId string
+		approved bool
+	}
 )
 
 // BubbleTeaTUI represents the new TUI using Bubble Tea
@@ -47,9 +75,10 @@ type BubbleTeaTUI struct {
 	program     *tea.Program // Store program reference for sending messages
 
 	// UI components
-	input    textinput.Model
-	viewport viewport.Model
-	spinner  spinner.Model
+	input         textinput.Model
+	viewport      viewport.Model
+	spinner       spinner.Model
+	confirmList   list.Model
 
 	// State
 	messages       []string
@@ -58,12 +87,22 @@ type BubbleTeaTUI struct {
 	status         string
 	showTodos      bool
 	todoUpdateTime time.Time
+	
+	// Code change confirmation
+	pendingChanges   map[string]codeChangeMsg
+	responseChannels map[string]chan bool
+	waitingForConfirm bool
+	currentChangeId   string
+	uiMode           string // "normal" 或 "confirm"
 
 	// Styles
-	inputStyle   lipgloss.Style
-	messageStyle lipgloss.Style
-	todoStyle    lipgloss.Style
-	statusStyle  lipgloss.Style
+	inputStyle     lipgloss.Style
+	messageStyle   lipgloss.Style
+	todoStyle      lipgloss.Style
+	statusStyle    lipgloss.Style
+	diffAddedStyle lipgloss.Style
+	diffRemovedStyle lipgloss.Style
+	diffHeaderStyle lipgloss.Style
 
 	// Layout
 	width  int
@@ -92,7 +131,7 @@ func NewBubbleTeaTUI(lukatinCode *LukatinCode) *BubbleTeaTUI {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
-	return &BubbleTeaTUI{
+	b := &BubbleTeaTUI{
 		lukatinCode: lukatinCode,
 		input:       ti,
 		viewport:    vp,
@@ -101,6 +140,13 @@ func NewBubbleTeaTUI(lukatinCode *LukatinCode) *BubbleTeaTUI {
 		todos:       []TodoItem{},
 		status:      "就绪",
 		showTodos:   false, // 默认隐藏TodoList
+		
+		// Code change confirmation
+		pendingChanges:    make(map[string]codeChangeMsg),
+		responseChannels:  make(map[string]chan bool),
+		waitingForConfirm: false,
+		currentChangeId:   "",
+		uiMode:           "normal",
 
 		// Styles
 		inputStyle: lipgloss.NewStyle().
@@ -121,7 +167,41 @@ func NewBubbleTeaTUI(lukatinCode *LukatinCode) *BubbleTeaTUI {
 		statusStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")).
 			Italic(true),
+
+		diffAddedStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("10")).
+			Background(lipgloss.Color("22")),
+
+		diffRemovedStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("9")).
+			Background(lipgloss.Color("52")),
+
+		diffHeaderStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("12")).
+			Bold(true),
 	}
+
+	// 初始化确认列表
+	options := []list.Item{
+		confirmOption{
+			title: "✅ 确认执行修改",
+			desc:  "继续执行代码修改操作",
+			value: true,
+		},
+		confirmOption{
+			title: "❌ 取消修改",
+			desc:  "停止AI任务并等待新指令",
+			value: false,
+		},
+	}
+	
+	b.confirmList = list.New(options, list.NewDefaultDelegate(), 50, 10)
+	b.confirmList.Title = "请选择操作"
+	b.confirmList.SetShowStatusBar(false)
+	b.confirmList.SetFilteringEnabled(false)
+	b.confirmList.SetShowHelp(false)
+
+	return b
 }
 
 // Init initializes the Bubble Tea program
@@ -191,6 +271,17 @@ func (b *BubbleTeaTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b, nil
 
 		case "enter":
+			// 处理代码修改确认
+			if b.uiMode == "confirm" && b.currentChangeId != "" {
+				selectedItem := b.confirmList.SelectedItem().(confirmOption)
+				return b, func() tea.Msg {
+					return userConfirmMsg{
+						changeId: b.currentChangeId,
+						approved: selectedItem.value,
+					}
+				}
+			}
+
 			input := strings.TrimSpace(b.input.Value())
 			if input == "" {
 				break
@@ -205,7 +296,6 @@ func (b *BubbleTeaTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.addMessage(fmt.Sprintf("👤 %s", input), "user")
 			b.input.SetValue("")
 			b.isProcessing = true
-			b.status = "AI正在思考..."
 
 			// Process input asynchronously
 			go b.processInput(input)
@@ -229,15 +319,41 @@ func (b *BubbleTeaTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.status = "就绪"
 
 	case toolCallMsg:
-		b.lukatinCode.Logger.Printf("收到工具调用: %s", msg.toolName)
+		// 构建合并的工具调用显示
+		var toolCallsDisplay []string
+		var allParams []string
+		hasTodoCall := false
 
-		if msg.toolName == "TodoRead" || msg.toolName == "TodoWrite" {
+		for _, toolCall := range msg.toolCalls {
+			b.lukatinCode.Logger.Printf("收到工具调用: %s", toolCall.toolName)
+			
+			if toolCall.toolName == "TodoRead" || toolCall.toolName == "TodoWrite" {
+				hasTodoCall = true
+			}
+			
+			toolCallsDisplay = append(toolCallsDisplay, toolCall.toolName)
+			if toolCall.params != "" {
+				allParams = append(allParams, fmt.Sprintf("%s(%s)", toolCall.toolName, toolCall.params))
+			}
+		}
+
+		// 如果包含TodoList操作，单独处理
+		if hasTodoCall {
 			b.addMessage("🔧 TodoList 管理", "tool")
-			// 直接在聊天流中显示格式化的TodoList
 			todoData := function.ListTodosFormatted()
 			b.addMessage(todoData, "todolist")
-		} else {
-			b.addMessage(fmt.Sprintf("🔧 %s", msg.toolName), "tool")
+		}
+
+		// 构建工具调用的合并显示
+		if len(toolCallsDisplay) > 0 {
+			toolCallText := strings.Join(toolCallsDisplay, " + ")
+			
+			if len(allParams) > 0 {
+				paramsText := strings.Join(allParams, " | ")
+				b.addMessageWithParams(fmt.Sprintf("🔧 %s", toolCallText), paramsText, "tool_with_params")
+			} else {
+				b.addMessage(fmt.Sprintf("🔧 %s", toolCallText), "tool")
+			}
 		}
 
 	case statusMsg:
@@ -255,6 +371,40 @@ func (b *BubbleTeaTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.addMessage("❌ 导出失败，请查看日志", "error")
 		}
 
+	case codeChangeMsg:
+		if msg.needConfirm {
+			// 存储待确认的修改
+			b.pendingChanges[msg.changeId] = msg
+			b.waitingForConfirm = true
+			b.currentChangeId = msg.changeId
+			b.uiMode = "confirm" // 切换到确认模式
+			
+			// 显示diff
+			b.showCodeChangeDiff(msg)
+		} else {
+			// 直接显示修改结果
+			b.showCodeChangeResult(msg)
+		}
+
+	case userConfirmMsg:
+		// 向响应channel发送确认结果
+		if responseChan, exists := b.responseChannels[msg.changeId]; exists {
+			if msg.approved {
+				b.addMessage("✅ 用户确认修改，正在执行...", "system")
+			} else {
+				b.addMessage("❌ 用户取消修改操作", "system")
+				b.addMessage("💡 修改已停止，请输入进一步的指令或问题继续对话", "system")
+			}
+			
+			// 发送确认结果到channel
+			responseChan <- msg.approved
+			
+			// 更新状态
+			b.waitingForConfirm = false
+			b.currentChangeId = ""
+			b.uiMode = "normal" // 切回正常模式
+		}
+
 	case spinner.TickMsg:
 		if b.isProcessing {
 			var cmd tea.Cmd
@@ -269,10 +419,17 @@ func (b *BubbleTeaTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 	}
 
-	// Update input
+	// Update input 或 confirmList
 	var cmd tea.Cmd
-	b.input, cmd = b.input.Update(msg)
-	cmds = append(cmds, cmd)
+	if b.uiMode == "confirm" {
+		// 在确认模式下更新确认列表
+		b.confirmList, cmd = b.confirmList.Update(msg)
+		cmds = append(cmds, cmd)
+	} else {
+		// 正常模式下更新输入框
+		b.input, cmd = b.input.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 
 	// Update viewport
 	b.viewport, cmd = b.viewport.Update(msg)
@@ -286,8 +443,15 @@ func (b *BubbleTeaTUI) View() string {
 	// Main content area
 	content := b.viewport.View()
 
-	// Input area
-	inputSection := b.inputStyle.Render(b.input.View())
+	// Input area 或 确认界面
+	var bottomSection string
+	if b.uiMode == "confirm" {
+		// 在确认模式下显示选择列表
+		bottomSection = b.confirmList.View()
+	} else {
+		// 正常模式下显示输入框
+		bottomSection = b.inputStyle.Render(b.input.View())
+	}
 
 	// Status line
 	statusLine := b.renderStatus()
@@ -296,13 +460,18 @@ func (b *BubbleTeaTUI) View() string {
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		content,
-		inputSection,
+		bottomSection,
 		statusLine,
 	)
 }
 
 // addMessage adds a message to the chat history
 func (b *BubbleTeaTUI) addMessage(message, msgType string) {
+	b.addMessageWithParams(message, "", msgType)
+}
+
+// addMessageWithParams adds a message with optional parameters to the chat history
+func (b *BubbleTeaTUI) addMessageWithParams(message, params, msgType string) {
 	timestamp := time.Now().Format("15:04:05")
 
 	// 自动换行处理，考虑viewport宽度
@@ -328,6 +497,17 @@ func (b *BubbleTeaTUI) addMessage(message, msgType string) {
 		styledMessage = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("33")).
 			Render(wrappedMsg)
+	case "tool_with_params":
+		// 分别处理函数名和参数的样式
+		toolNameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
+		paramsStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // 灰色
+
+		toolName := toolNameStyle.Render(fmt.Sprintf("[%s] %s", timestamp, message))
+		paramsText := ""
+		if params != "" {
+			paramsText = " " + paramsStyle.Render(params)
+		}
+		styledMessage = toolName + paramsText
 	case "explanation":
 		wrappedMsg := b.wrapText(fmt.Sprintf("  %s", message), maxWidth) // 缩进显示
 		styledMessage = lipgloss.NewStyle().
@@ -350,6 +530,26 @@ func (b *BubbleTeaTUI) addMessage(message, msgType string) {
 		wrappedMsg := b.wrapText(fmt.Sprintf("[%s] %s", timestamp, message), maxWidth)
 		styledMessage = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245")).
+			Render(wrappedMsg)
+	case "diff_added":
+		wrappedMsg := b.wrapText(message, maxWidth)
+		styledMessage = b.diffAddedStyle.Render(wrappedMsg)
+	case "diff_removed":
+		wrappedMsg := b.wrapText(message, maxWidth)
+		styledMessage = b.diffRemovedStyle.Render(wrappedMsg)
+	case "diff_header":
+		wrappedMsg := b.wrapText(message, maxWidth)
+		styledMessage = b.diffHeaderStyle.Render(wrappedMsg)
+	case "confirm":
+		wrappedMsg := b.wrapText(fmt.Sprintf("[%s] %s", timestamp, message), maxWidth)
+		styledMessage = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("11")).
+			Bold(true).
+			Render(wrappedMsg)
+	case "success":
+		wrappedMsg := b.wrapText(fmt.Sprintf("[%s] %s", timestamp, message), maxWidth)
+		styledMessage = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("10")).
 			Render(wrappedMsg)
 	default:
 		wrappedMsg := b.wrapText(fmt.Sprintf("[%s] %s", timestamp, message), maxWidth)
@@ -412,21 +612,21 @@ func (b *BubbleTeaTUI) formatTodoListMessage(message string) string {
 		Render(finalMessage)
 }
 
-// renderTodos renders the todo list with checkboxes
-func (b *BubbleTeaTUI) renderTodos() string {
-	if len(b.todos) == 0 {
-		return b.todoStyle.Render("📝 TodoList\n\n暂无任务")
-	}
+// // renderTodos renders the todo list with checkboxes
+// func (b *BubbleTeaTUI) renderTodos() string {
+// 	if len(b.todos) == 0 {
+// 		return b.todoStyle.Render("📝 TodoList\n\n暂无任务")
+// 	}
 
-	// 直接显示TodoList原始数据
-	for _, todo := range b.todos {
-		if todo.Status == "display" {
-			return b.todoStyle.Render(todo.Content)
-		}
-	}
+// 	// 直接显示TodoList原始数据
+// 	for _, todo := range b.todos {
+// 		if todo.Status == "display" {
+// 			return b.todoStyle.Render(todo.Content)
+// 		}
+// 	}
 
-	return b.todoStyle.Render("📝 TodoList\n\n数据加载中...")
-}
+// 	return b.todoStyle.Render("📝 TodoList\n\n数据加载中...")
+// }
 
 // renderStatus renders the status line
 func (b *BubbleTeaTUI) renderStatus() string {
@@ -499,14 +699,27 @@ func (b *BubbleTeaTUI) chatWithBubbleTea(input string) {
 			if msg.Role == general.RoleAssistant {
 				// 处理工具调用
 				if len(msg.ToolCalls) > 0 {
+					var toolCallInfos []toolCallInfo
 					for i, toolCall := range msg.ToolCalls {
 						b.lukatinCode.Logger.Printf("处理工具调用%d: %s", i+1, toolCall.Function.Name)
 						toolCalls = append(toolCalls, toolCall.Function.Name)
 						b.lukatinCode.Logger.Println("工具调用时的其他细节：", toolCall)
-						// Send tool call message to UI
-						if b.program != nil {
-							b.program.Send(toolCallMsg{toolName: toolCall.Function.Name})
-						}
+
+						// 格式化参数
+						formattedParams := b.formatToolParams(toolCall.Function.Arguments)
+
+						// 收集工具调用信息
+						toolCallInfos = append(toolCallInfos, toolCallInfo{
+							toolName: toolCall.Function.Name,
+							params:   formattedParams,
+						})
+					}
+
+					// 一次性发送所有工具调用到UI
+					if b.program != nil && len(toolCallInfos) > 0 {
+						b.program.Send(toolCallMsg{
+							toolCalls: toolCallInfos,
+						})
 					}
 				}
 
@@ -574,6 +787,9 @@ func (b *BubbleTeaTUI) chatWithBubbleTea(input string) {
 
 	// 记录网络请求开始时间
 	networkStart := time.Now()
+
+	// 构建已注册的工具列表
+	b.lukatinCode.CM.SetMaxFunctionCallingNums(10000000)
 	_, _, err, usage := b.lukatinCode.CM.Chat(ctx, general.ProviderOpenAI, model, input, []string{}, info_chan)
 	networkDuration := time.Since(networkStart)
 
@@ -585,10 +801,10 @@ func (b *BubbleTeaTUI) chatWithBubbleTea(input string) {
 	b.lukatinCode.Logger.Printf("网络请求耗时: %v", networkDuration)
 	b.lukatinCode.Logger.Printf("总体处理耗时: %v", totalDuration)
 	b.lukatinCode.Logger.Printf("本地处理耗时: %v (总时间 - 网络时间)", totalDuration-networkDuration)
-	
+
 	// Token使用统计
 	if usage != nil {
-		b.lukatinCode.Logger.Printf("Token使用情况: Prompt=%d, Completion=%d, Total=%d", 
+		b.lukatinCode.Logger.Printf("Token使用情况: Prompt=%d, Completion=%d, Total=%d",
 			usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
 	} else {
 		b.lukatinCode.Logger.Printf("Token使用情况: 未获取到usage数据")
@@ -679,6 +895,83 @@ func (b *BubbleTeaTUI) Run() error {
 	return err
 }
 
+// RequestEditConfirmation 实现UIInteractor接口，请求编辑确认
+func (b *BubbleTeaTUI) RequestEditConfirmation(filePath, oldContent, newContent, operation string) bool {
+	// 生成唯一的change ID
+	changeId := b.generateChangeId()
+	
+	// 创建响应channel
+	responseChan := make(chan bool, 1)
+	
+	// 存储等待确认的修改和响应channel
+	b.pendingChanges[changeId] = codeChangeMsg{
+		filePath:    filePath,
+		oldContent:  oldContent,
+		newContent:  newContent,
+		operation:   operation,
+		needConfirm: true,
+		changeId:    changeId,
+	}
+	
+	// 存储响应channel（需要一个map来管理）
+	if b.responseChannels == nil {
+		b.responseChannels = make(map[string]chan bool)
+	}
+	b.responseChannels[changeId] = responseChan
+	
+	// 发送代码修改消息到UI
+	if b.program != nil {
+		b.program.Send(codeChangeMsg{
+			filePath:    filePath,
+			oldContent:  oldContent,
+			newContent:  newContent,
+			operation:   operation,
+			needConfirm: true,
+			changeId:    changeId,
+		})
+	}
+	
+	// 阻塞等待用户确认
+	confirmed := <-responseChan
+	
+	// 清理
+	delete(b.pendingChanges, changeId)
+	delete(b.responseChannels, changeId)
+	
+	return confirmed
+}
+
+// generateChangeId 生成唯一的change ID
+func (b *BubbleTeaTUI) generateChangeId() string {
+	// 简单的时间戳ID
+	return fmt.Sprintf("change_%d", time.Now().UnixNano())
+}
+
+// truncateParams 截断参数字符串到指定长度
+func (b *BubbleTeaTUI) truncateParams(params string, maxLen int) string {
+	if len(params) <= maxLen {
+		return params
+	}
+	return params[:maxLen] + "..."
+}
+
+// formatToolParams 格式化工具调用参数
+func (b *BubbleTeaTUI) formatToolParams(arguments []byte) string {
+	if len(arguments) == 0 {
+		return ""
+	}
+
+	// 转换为字符串
+	argsStr := string(arguments)
+
+	// 移除换行符和多余空格
+	cleaned := strings.ReplaceAll(argsStr, "\n", " ")
+	cleaned = strings.Join(strings.Fields(cleaned), " ")
+
+	// 截断到50字符
+	return b.truncateParams(cleaned, 50)
+}
+
 // wrapText wraps text to fit within specified width
 func (b *BubbleTeaTUI) wrapText(text string, width int) string {
 	if width <= 0 {
@@ -742,6 +1035,130 @@ func (b *BubbleTeaTUI) wrapText(text string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
+// showCodeChangeDiff 显示代码修改的彩色diff
+func (b *BubbleTeaTUI) showCodeChangeDiff(change codeChangeMsg) {
+	b.addMessage(fmt.Sprintf("📝 准备修改文件: %s", change.filePath), "system")
+	b.addMessage(fmt.Sprintf("🔧 操作类型: %s", change.operation), "system")
+	
+	// 显示diff
+	if change.oldContent != "" && change.newContent != "" {
+		b.addMessage("═══════════ DIFF ═══════════", "diff_header")
+		
+		// 更好的diff算法：查找实际变化的内容
+		oldLines := strings.Split(change.oldContent, "\n")
+		newLines := strings.Split(change.newContent, "\n")
+		
+		// 显示上下文和变化
+		b.showLineDiff(oldLines, newLines)
+		
+		b.addMessage("═══════════════════════════", "diff_header")
+	} else if change.newContent != "" {
+		// 新文件
+		b.addMessage("📄 新文件内容:", "system")
+		lines := strings.Split(change.newContent, "\n")
+		for _, line := range lines {
+			b.addMessage(fmt.Sprintf("+ %s", line), "diff_added")
+		}
+	}
+}
+
+// showLineDiff 显示行级diff
+func (b *BubbleTeaTUI) showLineDiff(oldLines, newLines []string) {
+	// 找到第一个不同的行
+	firstDiff := -1
+	minLen := len(oldLines)
+	if len(newLines) < minLen {
+		minLen = len(newLines)
+	}
+	
+	for i := 0; i < minLen; i++ {
+		if oldLines[i] != newLines[i] {
+			firstDiff = i
+			break
+		}
+	}
+	
+	// 如果没有找到不同的行，检查长度是否不同
+	if firstDiff == -1 && len(oldLines) != len(newLines) {
+		firstDiff = minLen
+	}
+	
+	if firstDiff == -1 {
+		b.addMessage("(内容相同，无变化)", "system")
+		return
+	}
+	
+	// 显示上下文（变化前的几行）
+	contextStart := firstDiff - 2
+	if contextStart < 0 {
+		contextStart = 0
+	}
+	
+	for i := contextStart; i < firstDiff; i++ {
+		if i < len(oldLines) {
+			b.addMessage(fmt.Sprintf("  %s", oldLines[i]), "system")
+		}
+	}
+	
+	// 显示删除的行
+	changeEnd := len(oldLines)
+	for i := firstDiff; i < changeEnd; i++ {
+		if i < len(oldLines) {
+			b.addMessage(fmt.Sprintf("- %s", oldLines[i]), "diff_removed")
+		}
+	}
+	
+	// 显示添加的行
+	changeEnd = len(newLines)
+	for i := firstDiff; i < changeEnd; i++ {
+		if i < len(newLines) {
+			b.addMessage(fmt.Sprintf("+ %s", newLines[i]), "diff_added")
+		}
+	}
+	
+	// 显示上下文（变化后的几行）
+	contextEnd := firstDiff + 3
+	if len(newLines) > firstDiff {
+		maxContext := len(newLines)
+		if maxContext > contextEnd {
+			maxContext = contextEnd
+		}
+		for i := len(newLines); i < maxContext; i++ {
+			if i < len(newLines) {
+				b.addMessage(fmt.Sprintf("  %s", newLines[i]), "system")
+			}
+		}
+	}
+}
+
+// showCodeChangeResult 显示代码修改结果
+func (b *BubbleTeaTUI) showCodeChangeResult(change codeChangeMsg) {
+	switch change.operation {
+	case "edit":
+		b.addMessage(fmt.Sprintf("✅ 文件 %s 修改完成", change.filePath), "success")
+	case "multiedit":
+		b.addMessage(fmt.Sprintf("✅ 文件 %s 批量修改完成", change.filePath), "success")
+	case "write":
+		b.addMessage(fmt.Sprintf("✅ 文件 %s 写入完成", change.filePath), "success")
+	}
+}
+
+// executeCodeChange 执行代码修改
+func (b *BubbleTeaTUI) executeCodeChange(change codeChangeMsg) {
+	// 这里应该调用实际的文件操作函数
+	// 为了简化，现在只显示执行结果
+	go func() {
+		time.Sleep(500 * time.Millisecond) // 模拟执行时间
+		if b.program != nil {
+			b.program.Send(codeChangeMsg{
+				filePath:    change.filePath,
+				operation:   change.operation,
+				needConfirm: false,
+			})
+		}
+	}()
+}
+
 // logNetworkPerformance 记录网络性能数据到专门的日志文件
 func (b *BubbleTeaTUI) logNetworkPerformance(input, model string, networkDuration, totalDuration time.Duration, usage *general.Usage, err error) {
 	// 确保log目录存在
@@ -765,11 +1182,11 @@ func (b *BubbleTeaTUI) logNetworkPerformance(input, model string, networkDuratio
 
 	// 计算网络占比
 	networkRatio := float64(networkDuration) / float64(totalDuration) * 100
-	
+
 	// 处理Token信息
 	var tokenInfo string
 	if usage != nil {
-		tokenInfo = fmt.Sprintf("Prompt:%d|Completion:%d|Total:%d", 
+		tokenInfo = fmt.Sprintf("Prompt:%d|Completion:%d|Total:%d",
 			usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
 	} else {
 		tokenInfo = "Token:N/A"
@@ -832,3 +1249,4 @@ func (b *BubbleTeaTUI) exportHistory() {
 		}
 	}
 }
+
